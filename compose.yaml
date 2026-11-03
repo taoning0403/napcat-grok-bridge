@@ -1,0 +1,36 @@
+services:
+  bridge:
+    build: .
+    image: ${BRIDGE_IMAGE:-napcat-grok-bridge:local}
+    container_name: napcat-grok-bridge
+    restart: unless-stopped
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      DATA_DIR: /data
+    ports:
+      - "127.0.0.1:${BRIDGE_PORT:-18080}:18080"
+    volumes:
+      - bridge-data:/data
+    networks:
+      napcat:
+        aliases:
+          - napcat-grok-bridge
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    container_name: napcat-grok-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:-}
+    network_mode: host
+    profiles:
+      - tunnel
+
+volumes:
+  bridge-data:
+
+networks:
+  napcat:
+    name: ${NAPCAT_NETWORK:-napcat_default}
+    external: ${NAPCAT_NETWORK_EXTERNAL:-true}
