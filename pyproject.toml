@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "napcat-grok-bridge"
-version = "0.1.0"
+version = "0.3.0"
 description = "A single-peer, bidirectional NapCat and Grok Bot bridge"
 readme = "README.md"
 requires-python = ">=3.12"

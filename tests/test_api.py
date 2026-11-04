@@ -1,9 +1,17 @@
+import json
+import socket
+
 from conftest import BOT_ID, EVENT_TOKEN, PEER_ID, auth_headers, private_event
+
+
+def public_dns(*_, **__):
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
 
 
 def test_health_and_status(bridge):
     client, _, _, settings = bridge
     assert client.get("/health").status_code == 200
+    assert client.get("/health").json()["version"] == "0.3.0"
     assert client.get("/bridge/status").status_code == 403
     response = client.get("/bridge/status", headers=auth_headers())
     assert response.status_code == 200
@@ -52,6 +60,7 @@ def test_private_message_whitelist_and_outbound_filtering(bridge):
     assert response.status_code == 200
     message_id = response.json()["data"]["message_id"]
     assert onebot.calls[-1][1]["user_id"] == PEER_ID
+    assert onebot.calls[-1][1]["auto_escape"] is True
 
     url = f"/napcat/event?access_token={EVENT_TOKEN}"
     sent = private_event(
@@ -70,8 +79,89 @@ def test_private_message_whitelist_and_outbound_filtering(bridge):
     assert incoming.json()["accepted"] is True
 
 
+def test_private_message_with_image(bridge, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", public_dns)
+    client, _, onebot, _ = bridge
+    response = client.post(
+        "/send_private_msg",
+        json={
+            "user_id": PEER_ID,
+            "message": [
+                {"type": "text", "data": {"text": "请看"}},
+                {"type": "image", "data": {"file": "https://images.example/photo.png"}},
+            ],
+        },
+        headers=auth_headers(),
+    )
+    assert response.status_code == 200
+    assert onebot.calls[-1] == (
+        "/send_private_msg",
+        {
+            "user_id": PEER_ID,
+            "message": [
+                {"type": "text", "data": {"text": "请看"}},
+                {"type": "image", "data": {"file": "https://images.example/photo.png"}},
+            ],
+            "auto_escape": False,
+        },
+    )
+
+    race = private_event(
+        post_type="message_sent",
+        message_id=6003,
+        message=[
+            {"type": "text", "data": {"text": "请看"}},
+            {"type": "image", "data": {"url": "https://multimedia.example/photo.png"}},
+        ],
+    )
+    result = client.post(f"/napcat/event?access_token={EVENT_TOKEN}", json=race).json()
+    assert result["accepted"] is False
+    assert result["reason"] == "pending bridge outbound message"
+
+
+def test_private_message_rejects_unsafe_images(bridge, monkeypatch):
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_, **__: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))],
+    )
+    client, _, onebot, _ = bridge
+    messages = [
+        [{"type": "image", "data": {"file": "http://images.example/photo.png"}}],
+        [{"type": "image", "data": {"file": "https://internal.test/photo.png"}}],
+        [{"type": "image", "data": {"file": "https://user:secret@images.example/photo.png"}}],
+        [{"type": "image", "data": {"file": "/tmp/photo.png"}}],
+        [{"type": "face", "data": {"id": "1"}}],
+    ]
+    for message in messages:
+        response = client.post(
+            "/send_private_msg",
+            json={"user_id": PEER_ID, "message": message},
+            headers=auth_headers(),
+        )
+        assert response.status_code == 400
+    assert onebot.calls == []
+
+
+def test_private_message_limits_images(bridge, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", public_dns)
+    client, _, onebot, _ = bridge
+    message = [
+        {"type": "image", "data": {"file": f"https://images.example/{index}.png"}}
+        for index in range(5)
+    ]
+    response = client.post(
+        "/send_private_msg",
+        json={"user_id": PEER_ID, "message": message},
+        headers=auth_headers(),
+    )
+    assert response.status_code == 400
+    assert "4 images" in response.json()["message"]
+    assert onebot.calls == []
+
+
 def test_message_array_normalization(bridge):
-    client, _, _, _ = bridge
+    client, app, _, _ = bridge
     response = client.post(
         f"/napcat/event?access_token={EVENT_TOKEN}",
         json=private_event(
@@ -84,3 +174,6 @@ def test_message_array_normalization(bridge):
     )
     assert response.status_code == 200
     assert response.json()["accepted"] is True
+    row = app.state.store.next_pending_event()
+    assert row["text"] == "hello [图片][表情]"
+    assert json.loads(row["images"]) == ["https://example.invalid/image"]

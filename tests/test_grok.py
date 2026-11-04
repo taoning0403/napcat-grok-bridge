@@ -1,4 +1,5 @@
 import asyncio
+import json
 import socket
 import stat
 
@@ -55,14 +56,50 @@ def test_grok_configuration_and_delivery(tmp_path, monkeypatch):
 
         assert len(requests) == 1
         request = requests[0]
-        payload = __import__("json").loads(request.content)
+        payload = json.loads(request.content)
         assert payload["type"] == "qq_private_message"
-        assert payload["schema_version"] == 1
+        assert payload["schema_version"] == 2
         assert payload["text"] == "hello"
+        assert payload["images"] == []
         assert request.headers["User-Agent"] == "GrokBot-NapCat-Bridge/1.0"
         assert request.headers["Authorization"] == "Bearer webhook-key-123456"
         assert stat.S_IMODE(app.state.store.grok_config_path.stat().st_mode) == 0o600
         assert asyncio.run(app.state.dispatcher.deliver_once())["reason"] == "no pending event"
+
+
+def test_grok_image_delivery(tmp_path, monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", public_dns)
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"accepted": True})
+
+    settings = Settings.from_env(environment(tmp_path))
+    app = configured_bridge(settings, httpx.MockTransport(handler))
+    with TestClient(app):
+        client = TestClient(app)
+        client.post(
+            "/grok/config",
+            json={"url": "https://grok.test/hook", "key": "webhook-key-123456"},
+            headers=auth_headers(),
+        )
+        event = private_event(
+            message_id=5100,
+            message=[
+                {"type": "text", "data": {"text": "看这张图"}},
+                {"type": "image", "data": {"url": "https://multimedia.example/photo.png"}},
+                {"type": "image", "data": {"url": "http://unsafe.example/photo.png"}},
+            ],
+        )
+        response = client.post(f"/napcat/event?access_token={EVENT_TOKEN}", json=event)
+        assert response.json()["accepted"] is True
+        assert asyncio.run(app.state.dispatcher.deliver_once())["delivered"] is True
+
+    payload = json.loads(requests[0].content)
+    assert payload["schema_version"] == 2
+    assert payload["text"] == "看这张图[图片][图片]"
+    assert payload["images"] == [{"url": "https://multimedia.example/photo.png"}]
 
 
 def test_grok_retry_then_success(tmp_path, monkeypatch):

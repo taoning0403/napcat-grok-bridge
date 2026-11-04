@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -48,6 +49,13 @@ class Settings:
     enable_api_docs: bool
     max_message_length: int
     retention_days: int
+    enable_image_host: bool
+    image_host_public_base_url: str
+    image_host_max_bytes: int
+    github_image_token: str
+    github_image_repository: str
+    github_image_branch: str
+    github_image_timeout_seconds: float
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -80,6 +88,24 @@ class Settings:
         )
         if not allowed_hosts:
             raise SettingsError("GROK_ALLOWED_HOSTS cannot be empty")
+        public_base_url = env.get("PUBLIC_BASE_URL", "").rstrip("/")
+        enable_image_host = _boolean(env.get("ENABLE_IMAGE_HOST", "false"))
+        image_host_public_base_url = (env.get("IMAGE_HOST_PUBLIC_BASE_URL") or public_base_url).rstrip("/")
+        image_host_max_bytes = _integer(env, "IMAGE_HOST_MAX_BYTES", 10 * 1024 * 1024)
+        github_image_token = env.get("GITHUB_IMAGE_TOKEN", "")
+        github_image_repository = env.get("GITHUB_IMAGE_REPOSITORY", "")
+        github_image_branch = env.get("GITHUB_IMAGE_BRANCH", "main")
+        if enable_image_host:
+            if not image_host_public_base_url.startswith("https://"):
+                raise SettingsError("IMAGE_HOST_PUBLIC_BASE_URL must use HTTPS when the image host is enabled")
+            if not 1024 <= image_host_max_bytes <= 50 * 1024 * 1024:
+                raise SettingsError("IMAGE_HOST_MAX_BYTES must be between 1024 and 52428800")
+            if len(github_image_token) < 16:
+                raise SettingsError("GITHUB_IMAGE_TOKEN must contain at least 16 characters")
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", github_image_repository):
+                raise SettingsError("GITHUB_IMAGE_REPOSITORY must use owner/repository format")
+            if not github_image_branch:
+                raise SettingsError("GITHUB_IMAGE_BRANCH cannot be empty")
         return cls(
             onebot_url=onebot_url,
             onebot_token=_secret(env, "ONEBOT_TOKEN"),
@@ -88,7 +114,7 @@ class Settings:
             allowed_peer_id=allowed_peer_id,
             bot_user_id=bot_user_id,
             data_dir=env.get("DATA_DIR", "/data"),
-            public_base_url=env.get("PUBLIC_BASE_URL", "").rstrip("/"),
+            public_base_url=public_base_url,
             bridge_user_agent=env.get("BRIDGE_USER_AGENT", "GrokBot-NapCat-Bridge/1.0"),
             grok_allowed_hosts=allowed_hosts,
             grok_webhook_url=grok_url,
@@ -99,4 +125,11 @@ class Settings:
             enable_api_docs=_boolean(env.get("ENABLE_API_DOCS", "false")),
             max_message_length=_integer(env, "MAX_MESSAGE_LENGTH", 1000),
             retention_days=_integer(env, "RETENTION_DAYS", 7),
+            enable_image_host=enable_image_host,
+            image_host_public_base_url=image_host_public_base_url,
+            image_host_max_bytes=image_host_max_bytes,
+            github_image_token=github_image_token,
+            github_image_repository=github_image_repository,
+            github_image_branch=github_image_branch,
+            github_image_timeout_seconds=float(env.get("GITHUB_IMAGE_TIMEOUT_SECONDS", "30")),
         )

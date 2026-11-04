@@ -1,11 +1,14 @@
 import time
 from typing import Any, Self
+from urllib.parse import urlsplit
 
 import httpx
 
 from .config import Settings
 from .models import NormalizedEvent, UpstreamReply
 from .storage import Store
+
+MAX_IMAGES = 4
 
 
 class OneBotUnavailable(RuntimeError):
@@ -47,8 +50,22 @@ class OneBotClient:
             return UpstreamReply(response.status_code, {"status": "failed", "message": "invalid NapCat response"})
 
 
-def extract_text(payload: dict[str, Any]) -> str:
+def incoming_image_url(data: dict[str, Any]) -> str | None:
+    url = data.get("url")
+    if not isinstance(url, str) or len(url) > 4096:
+        return None
+    url = url.strip()
+    try:
+        parsed = urlsplit(url)
+        valid = parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password
+    except ValueError:
+        return None
+    return url if valid else None
+
+
+def extract_message(payload: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
     message = payload.get("message")
+    images: list[str] = []
     if isinstance(message, str):
         text = message
     elif isinstance(message, list):
@@ -58,10 +75,15 @@ def extract_text(payload: dict[str, Any]) -> str:
                 continue
             kind = segment.get("type", "unknown")
             data = segment.get("data") or {}
+            if not isinstance(data, dict):
+                data = {}
             if kind == "text":
                 parts.append(str(data.get("text", "")))
             elif kind == "image":
                 parts.append("[图片]")
+                url = incoming_image_url(data)
+                if url and len(images) < MAX_IMAGES:
+                    images.append(url)
             elif kind == "face":
                 parts.append("[表情]")
             elif kind == "reply":
@@ -73,7 +95,11 @@ def extract_text(payload: dict[str, Any]) -> str:
         text = "".join(parts)
     else:
         text = str(payload.get("raw_message") or "")
-    return (text.strip() or "[非文本消息]")[:6000]
+    return (text.strip() or "[非文本消息]")[:6000], tuple(images)
+
+
+def extract_text(payload: dict[str, Any]) -> str:
+    return extract_message(payload)[0]
 
 
 class EventProcessor:
@@ -96,7 +122,7 @@ class EventProcessor:
         if self_id != self.settings.bot_user_id:
             return {"accepted": False, "reason": "self_id is not allowed"}
         message_id = payload.get("message_id")
-        text = extract_text(payload)
+        text, images = extract_message(payload)
         if self.store.is_outbound(message_id):
             return {"accepted": False, "reason": "bridge outbound message"}
         if payload.get("post_type") == "message_sent" and self.store.consume_pending(user_id, text):
@@ -110,6 +136,7 @@ class EventProcessor:
             user_id=user_id,
             text=text,
             created_at=time.time(),
+            images=images,
         )
         accepted, reason = self.store.insert_event(event)
         return {"accepted": accepted, "event_id": event_id, "reason": reason}

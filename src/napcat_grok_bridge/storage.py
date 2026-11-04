@@ -43,6 +43,7 @@ class Store:
                     self_id TEXT,
                     user_id INTEGER,
                     text TEXT,
+                    images TEXT NOT NULL DEFAULT '[]',
                     created_at REAL,
                     attempts INTEGER DEFAULT 0,
                     delivered INTEGER DEFAULT 0,
@@ -51,6 +52,9 @@ class Store:
                     last_error TEXT
                 )"""
             )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(events)")}
+            if "images" not in columns:
+                connection.execute("ALTER TABLE events ADD COLUMN images TEXT NOT NULL DEFAULT '[]'")
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS outbound (message_id TEXT PRIMARY KEY, created_at REAL)"
             )
@@ -60,14 +64,15 @@ class Store:
     def insert_event(self, event: NormalizedEvent) -> tuple[bool, str]:
         with self.connection() as connection:
             cursor = connection.execute(
-                "INSERT OR IGNORE INTO events(event_id, message_id, self_id, user_id, text, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO events(event_id, message_id, self_id, user_id, text, images, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     event.event_id,
                     event.message_id,
                     event.self_id,
                     event.user_id,
                     event.text,
+                    json.dumps(list(event.images), ensure_ascii=False, separators=(",", ":")),
                     event.created_at,
                 ),
             )

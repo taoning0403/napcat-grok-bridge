@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import json
 import socket
 from contextlib import suppress
 from typing import Any, Self
@@ -101,6 +102,7 @@ class GrokDispatcher:
                 user_id=row["user_id"],
                 text=row["text"],
                 created_at=row["created_at"],
+                images=tuple(json.loads(row["images"] or "[]")),
             )
             try:
                 await self.client.deliver(event, config)

@@ -29,3 +29,22 @@ def test_peer_and_bot_must_differ(tmp_path):
 def test_peer_id_does_not_require_legacy_alias(tmp_path):
     env = environment(tmp_path)
     assert Settings.from_env(env).allowed_peer_id == 111111
+
+
+def test_image_host_configuration(tmp_path):
+    env = environment(tmp_path, ENABLE_IMAGE_HOST="true")
+    with pytest.raises(SettingsError, match="IMAGE_HOST_PUBLIC_BASE_URL"):
+        Settings.from_env(env)
+
+    env["IMAGE_HOST_PUBLIC_BASE_URL"] = "https://napcat-api.example.com"
+    with pytest.raises(SettingsError, match="GITHUB_IMAGE_TOKEN"):
+        Settings.from_env(env)
+
+    env["GITHUB_IMAGE_TOKEN"] = "github_pat_test_123456"
+    with pytest.raises(SettingsError, match="GITHUB_IMAGE_REPOSITORY"):
+        Settings.from_env(env)
+
+    env["GITHUB_IMAGE_REPOSITORY"] = "owner/images"
+    settings = Settings.from_env(env)
+    assert settings.enable_image_host is True
+    assert settings.github_image_branch == "main"
