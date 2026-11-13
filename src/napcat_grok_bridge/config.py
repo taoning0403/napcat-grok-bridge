@@ -120,7 +120,7 @@ class Settings:
             grok_webhook_url=grok_url,
             grok_webhook_key=grok_key,
             grok_timeout_seconds=float(env.get("GROK_TIMEOUT_SECONDS", "30")),
-            onebot_timeout_seconds=float(env.get("ONEBOT_TIMEOUT_SECONDS", "15")),
+            onebot_timeout_seconds=float(env.get("ONEBOT_TIMEOUT_SECONDS", "120")),
             enable_grok_worker=_boolean(env.get("ENABLE_GROK_WORKER", "true")),
             enable_api_docs=_boolean(env.get("ENABLE_API_DOCS", "false")),
             max_message_length=_integer(env, "MAX_MESSAGE_LENGTH", 1000),

@@ -4,6 +4,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Self
 
 import httpx
@@ -68,9 +69,11 @@ class ImageHost:
         self.settings = settings
         self.transport = transport
         self.client: httpx.AsyncClient | None = None
+        self.cache_dir = Path(settings.data_dir) / "image-cache"
 
     async def __aenter__(self) -> Self:
         if self.settings.enable_image_host:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
             self.client = httpx.AsyncClient(
                 base_url="https://api.github.com",
                 timeout=self.settings.github_image_timeout_seconds,
@@ -92,6 +95,28 @@ class ImageHost:
     def api_path(self, path: str) -> str:
         return f"/repos/{self.settings.github_image_repository}/contents/{path}"
 
+    def cache_path(self, path: str) -> Path:
+        return self.cache_dir / path
+
+    def cache_image(self, path: str, content: bytes) -> None:
+        destination = self.cache_path(path)
+        temporary = destination.with_name(destination.name + ".tmp")
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_bytes(content)
+            temporary.replace(destination)
+        except OSError:
+            pass
+
+    def validate_content(self, path: str, content: bytes) -> HostedImage:
+        if len(content) > self.settings.image_host_max_bytes:
+            raise ImageHostUnavailable("image exceeds the configured size limit")
+        detected = detect_image(content)
+        if not detected or not path.endswith(f".{detected[1]}"):
+            raise ImageHostUnavailable("image content is invalid")
+        media_type, extension = detected
+        return HostedImage(path, media_type, extension, content)
+
     async def upload(self, data: str) -> HostedImage:
         if not self.client:
             raise RuntimeError("ImageHost is not initialized")
@@ -111,6 +136,7 @@ class ImageHost:
             raise ImageHostUnavailable("GitHub image upload unavailable") from error
         if response.status_code != 201:
             raise ImageHostUnavailable(f"GitHub image upload returned HTTP {response.status_code}")
+        self.cache_image(path, content)
         return HostedImage(path, media_type, extension, content)
 
     async def download(self, path: str) -> HostedImage | None:
@@ -118,6 +144,12 @@ class ImageHost:
             raise RuntimeError("ImageHost is not initialized")
         if not IMAGE_PATH.fullmatch(path):
             return None
+        try:
+            content = self.cache_path(path).read_bytes()
+        except OSError:
+            content = None
+        if content is not None:
+            return self.validate_content(path, content)
         try:
             response = await self.client.get(
                 self.api_path(path),
@@ -130,11 +162,6 @@ class ImageHost:
             return None
         if response.status_code != 200:
             raise ImageHostUnavailable(f"GitHub image download returned HTTP {response.status_code}")
-        content = response.content
-        if len(content) > self.settings.image_host_max_bytes:
-            raise ImageHostUnavailable("GitHub image exceeds the configured size limit")
-        detected = detect_image(content)
-        if not detected or not path.endswith(f".{detected[1]}"):
-            raise ImageHostUnavailable("GitHub image content is invalid")
-        media_type, extension = detected
-        return HostedImage(path, media_type, extension, content)
+        image = self.validate_content(path, response.content)
+        self.cache_image(path, image.content)
+        return image

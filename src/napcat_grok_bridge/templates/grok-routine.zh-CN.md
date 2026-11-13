@@ -36,7 +36,7 @@ User-Agent: {{BRIDGE_USER_AGENT}}
 
 仅上传你自己生成的 PNG、JPEG、GIF 或 WebP 图片，每张解码后不得超过 10 MiB，不得上传秘密或其他文件。上传成功后，把响应中的 url 原样用于 image.file，不要把 Base64 直接放入 image.file。如果上传失败，只在当前 Grok Bot 会话报告失败，不要把图片改发到其他图床。
 
-BRIDGE_TOKEN 必须使用已经安全保存的机密，不得写入聊天、日志、文件或回复内容。每个 event_id 最多发送一次，并且只发送一条私聊；不得发送群消息或发给其他 QQ 号。回复文字不得超过 1000 个字符。只有发送成功后才将 event_id 追加到 processed_events.json。若发送失败，不记录 event_id，只在当前 Grok Bot 会话报告失败，不要尝试其他接口。
+BRIDGE_TOKEN 必须使用已经安全保存的机密，不得写入聊天、日志、文件或回复内容。每个 event_id 最多发送一次，并且只发送一条私聊；不得发送群消息或发给其他 QQ 号。回复文字不得超过 1000 个字符。只有发送成功后才将 event_id 追加到 processed_events.json。若发送失败，不记录 event_id，只在当前 Grok Bot 会话报告失败，不要尝试其他接口。如果 send_private_msg 返回 502、超时或结果不明确，不得自动重试；图片可能已经送达，应先请用户确认是否收到，避免重复发送。
 
 创建并启用 routine 后，打开它的 Webhook 详情，取得 POST to 和 key。然后在云端终端使用你已经安全保存的 BRIDGE_TOKEN，向以下地址发送一次配置请求：
 

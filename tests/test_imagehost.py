@@ -79,9 +79,33 @@ def test_base64_upload_proxy_and_qq_delivery(tmp_path, monkeypatch):
         )
         assert sent.status_code == 200
 
-    assert len(requests) == 2
+    restarted_host = ImageHost(settings, transport=httpx.MockTransport(handler))
+    restarted_app = create_app(settings, onebot=FakeOneBot(), image_host=restarted_host)
+    with TestClient(restarted_app) as client:
+        cached = client.get("/images/" + body["path"])
+        assert cached.status_code == 200
+        assert cached.content == PNG
+
+    assert len(requests) == 1
     assert all(request.headers["Authorization"] == "Bearer github_pat_test_123456" for request in requests)
     assert onebot.calls[-1][1]["message"][0]["data"]["file"] == body["url"]
+
+
+def test_download_falls_back_to_github_when_cache_is_missing(tmp_path):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, content=PNG)
+
+    settings = image_settings(tmp_path)
+    image_host = ImageHost(settings, transport=httpx.MockTransport(handler))
+    app = create_app(settings, onebot=FakeOneBot(), image_host=image_host)
+    with TestClient(app) as client:
+        response = client.get("/images/images/2026/11/" + "b" * 32 + ".png")
+        assert response.status_code == 200
+        assert response.content == PNG
+    assert len(requests) == 1
 
 
 def test_invalid_images_do_not_call_github(tmp_path):
@@ -122,7 +146,7 @@ def test_missing_image_and_github_failure(tmp_path):
         )
         assert upload.status_code == 502
         assert "403" in upload.json()["message"]
-        missing = client.get("/images/2026/11/" + "a" * 32 + ".png")
+        missing = client.get("/images/images/2026/11/" + "a" * 32 + ".png")
         assert missing.status_code == 404
 
 

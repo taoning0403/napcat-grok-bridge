@@ -140,7 +140,7 @@ Grok → QQ 继续使用 `/send_private_msg`。纯文本请求不变；发送图
 
 ### GitHub 私有图床
 
-`v0.3` 可将 Grok 生成的 Base64 图片上传到一个 GitHub 私有仓库，并通过桥接代理给 NapCat，不需要 jsDelivr。Token 应使用 fine-grained personal access token，只允许访问图床仓库，并仅授予 **Contents: Read and write**。
+`v0.3.1` 可将 Grok 生成的 Base64 图片上传到一个 GitHub 私有仓库，并通过桥接代理给 NapCat，不需要 jsDelivr。Token 应使用 fine-grained personal access token，只允许访问图床仓库，并仅授予 **Contents: Read and write**。
 
 | 变量 | 说明 |
 | --- | --- |
@@ -151,6 +151,7 @@ Grok → QQ 继续使用 `/send_private_msg`。纯文本请求不变；发送图
 | `GITHUB_IMAGE_REPOSITORY` | 私有仓库，格式为 `owner/repository` |
 | `GITHUB_IMAGE_BRANCH` | 上传分支，默认 `main` |
 | `GITHUB_IMAGE_TIMEOUT_SECONDS` | GitHub 请求超时，默认 30 秒 |
+| `ONEBOT_TIMEOUT_SECONDS` | 等待 NapCat 发送响应的时间，默认 120 秒 |
 
 Grok 使用桥接 Token 上传纯 Base64 或图片 data URL：
 
@@ -164,7 +165,7 @@ Content-Type: application/json
 
 支持 PNG、JPEG、GIF 和 WebP。成功响应包含 `url`、`path`、`media_type` 和 `size`，将 `url` 原样用于 `send_private_msg` 的 `image.file` 即可。桥接会将文件提交到 `images/YYYY/MM/` 下的随机路径。
 
-`GET /images/...` 是供 NapCat 使用的公开代理，桥接在后台读取私有仓库，不向 NapCat 暴露 GitHub Token。虽然仓库是私有的，但知道随机图片 URL 的人都能访问该图片，因此不要上传秘密或敏感内容。
+上传成功后，图片还会缓存到数据卷的 `image-cache` 中。`GET /images/...` 优先读取本地缓存，缓存缺失时才从 GitHub 私有仓库回源，避免 NapCat 发送多张大图时重复回源。缓存由桥接持有，不向 NapCat 暴露 GitHub Token。虽然仓库是私有的，但知道随机图片 URL 的人都能访问该图片，因此不要上传秘密或敏感内容。
 
 ### 从 v0.1 升级
 

@@ -11,7 +11,7 @@ def public_dns(*_, **__):
 def test_health_and_status(bridge):
     client, _, _, settings = bridge
     assert client.get("/health").status_code == 200
-    assert client.get("/health").json()["version"] == "0.3.0"
+    assert client.get("/health").json()["version"] == "0.3.1"
     assert client.get("/bridge/status").status_code == 403
     response = client.get("/bridge/status", headers=auth_headers())
     assert response.status_code == 200

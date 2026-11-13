@@ -48,3 +48,7 @@ def test_image_host_configuration(tmp_path):
     settings = Settings.from_env(env)
     assert settings.enable_image_host is True
     assert settings.github_image_branch == "main"
+
+
+def test_onebot_default_timeout_allows_large_images(tmp_path):
+    assert Settings.from_env(environment(tmp_path)).onebot_timeout_seconds == 120

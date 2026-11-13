@@ -16,5 +16,7 @@ def test_routine_rendering(monkeypatch, capsys):
     assert '"file":"https://example.com/image.png"' in output
     assert "https://napcat-api.example.com/grok/images" in output
     assert "纯 Base64 或 data:image/png;base64" in output
+    assert "502、超时或结果不明确" in output
+    assert "不得自动重试" in output
     assert "{{" not in output
     assert "BRIDGE_TOKEN" in output
